@@ -36,6 +36,26 @@ STATE_LABELS = {
     "pow_up": "powering up",
 }
 
+STATE_EXPLANATIONS = {
+    "idle":   "Node is up and has no jobs running on it — fully available for new work.",
+    "alloc":  "Node is fully allocated to one or more running jobs (no free CPUs left for the partition).",
+    "mix":    "Node is partially allocated — some CPUs/resources are in use, others are still free.",
+    "comp":   "Job(s) on the node are in the process of finishing up (epilog/cleanup).",
+    "drain":  "Admin marked the node as drained: existing jobs may finish, but no new jobs will be scheduled on it.",
+    "drng":   "Same as drained, but a job is still running — the node will become 'drain' once it finishes.",
+    "drai":   "Drained (alternate sinfo abbreviation).",
+    "down":   "Node is unreachable or considered failed by the controller — not usable.",
+    "maint":  "Node is held by a maintenance reservation; will return to service when the reservation ends.",
+    "resv":   "Node is held by a (non-maintenance) reservation for specific users/jobs.",
+    "boot":   "Node is currently booting and will be available shortly.",
+    "fail":   "Node has been flagged as failing and will be removed from service.",
+    "failg":  "Node is in the process of failing — running jobs may be affected.",
+    "unk":    "Controller has not heard from the node recently; state is unknown.",
+    "plnd":   "Reserved by the scheduler for a planned (future) job — not free for new submissions.",
+    "pow_dn": "Node has been powered down to save energy; it will be powered back on when needed.",
+    "pow_up": "Node is powering back on after being suspended.",
+}
+
 
 def clean_state(s):
     # sinfo appends flags like *, ~, #, $, @, %, !, +, &, ^, - to state codes.
@@ -114,8 +134,10 @@ def main():
 
     print(f"=== Cluster snapshot ===  unique nodes: {total_unique}  grouped by: {group_by}\n")
 
+    seen_states = set()
     for group in sorted(groups):
         states = groups[group]
+        seen_states.update(states.keys())
         total = sum(states.values())
         print(f"[{group}]  {total} nodes")
         for state in sorted(states, key=lambda s: -states[s]):
@@ -130,6 +152,13 @@ def main():
             for u, n, pct in users:
                 print(f"    {n:>4}  {pct:5.1f}%  {u}")
         print()
+
+    explained = [s for s in seen_states if s in STATE_EXPLANATIONS]
+    if explained:
+        print("State meanings:")
+        for state in sorted(explained, key=lambda s: STATE_LABELS.get(s, s)):
+            label = STATE_LABELS.get(state, state)
+            print(f"  - {label}: {STATE_EXPLANATIONS[state]}")
 
 
 if __name__ == "__main__":
