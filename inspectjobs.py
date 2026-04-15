@@ -71,6 +71,44 @@ def get_jobs_for_accounts(accounts):
     return jobs
 
 
+REASON_EXPLANATIONS = {
+    "Resources": "Waiting for required resources (CPUs/memory/GPUs) to free up on a matching node.",
+    "Priority": "Other queued jobs have higher priority and will run first.",
+    "ReqNodeNotAvail": "The specific node(s) the job needs are unavailable — often because they're drained, down, or held by a reservation. The parenthesized note (e.g. 'Reserved for maintenance') usually says why.",
+    "Reserved for maintenance": "Some nodes are blocked by an admin reservation for maintenance; the job will run after the reservation ends.",
+    "ReqNodeNotAvail, UnavailableNodes": "Requested nodes are currently unreachable (down or drained).",
+    "Dependency": "Waiting for another job listed in --dependency to finish.",
+    "DependencyNeverSatisfied": "A dependency job failed or was cancelled — this job will never run and should be cancelled manually.",
+    "JobHeldUser": "You (the user) put this job on hold with `scontrol hold`. Release with `scontrol release <jobid>`.",
+    "JobHeldAdmin": "An administrator put this job on hold.",
+    "BeginTime": "Job has a --begin time in the future and is waiting for that moment.",
+    "QOSMaxJobsPerUserLimit": "You've hit the per-user job count limit for this QOS; one of your jobs must finish first.",
+    "QOSMaxCpuPerUserLimit": "You've hit the per-user CPU limit for this QOS.",
+    "AssocMaxJobsLimit": "You've hit the maximum number of running jobs allowed for your account/association.",
+    "PartitionDown": "The target partition is currently down.",
+    "PartitionNodeLimit": "The job requests more nodes than the partition allows.",
+    "PartitionTimeLimit": "The job's time limit exceeds what the partition allows.",
+    "NodeDown": "An assigned node went down.",
+    "Licenses": "Waiting for a software license tracked by SLURM.",
+    "ReqNodeNotAvail, Reserved for maintenance": "Requested nodes are blocked by a maintenance reservation; the job will start after maintenance ends.",
+}
+
+
+def extract_reason_codes(jobs):
+    """Pick out known SLURM reason codes that appear in the current job list."""
+    found = []
+    seen = set()
+    for job in jobs:
+        raw = job["reason"].strip().strip("()")
+        if not raw:
+            continue
+        for code, explanation in REASON_EXPLANATIONS.items():
+            if code in raw and code not in seen:
+                seen.add(code)
+                found.append((code, explanation))
+    return found
+
+
 def clear_screen():
     os.system("cls" if os.name == "nt" else "clear")
 
@@ -166,6 +204,13 @@ def main():
                     print(f"  [{acct}] ({len(acct_jobs)} jobs)")
                     for line in format_table(acct_jobs).splitlines():
                         print(f"  {line}")
+                    print()
+
+                explanations = extract_reason_codes(jobs)
+                if explanations:
+                    print("  Reason codes:")
+                    for code, text in explanations:
+                        print(f"    - {code}: {text}")
                     print()
 
             time.sleep(refresh_interval)
