@@ -76,6 +76,10 @@ def get_nodes_by_group(group_by):
             continue
         node, state, partition, feats = parts
         state = clean_state(state)
+        # sinfo marks the default partition with a trailing '*' (e.g. "booster*"),
+        # but squeue reports the same partition without it. Normalize so the
+        # top-users join below actually matches.
+        partition = partition.rstrip("*")
         all_nodes.add(node)
         key = partition if group_by == "partition" else (feats or "(none)")
         groups[key][state].add(node)
