@@ -95,17 +95,25 @@ REASON_EXPLANATIONS = {
 
 
 def extract_reason_codes(jobs):
-    """Pick out known SLURM reason codes that appear in the current job list."""
+    """Pick out known SLURM reason codes that appear in the current job list.
+
+    For each job we keep only the most specific (longest) matching key, so a
+    compound reason like "ReqNodeNotAvail, Reserved for maintenance" doesn't
+    also drag in its substrings.
+    """
     found = []
     seen = set()
+    keys_by_specificity = sorted(REASON_EXPLANATIONS, key=len, reverse=True)
     for job in jobs:
         raw = job["reason"].strip().strip("()")
         if not raw:
             continue
-        for code, explanation in REASON_EXPLANATIONS.items():
-            if code in raw and code not in seen:
-                seen.add(code)
-                found.append((code, explanation))
+        for code in keys_by_specificity:
+            if code in raw:
+                if code not in seen:
+                    seen.add(code)
+                    found.append((code, REASON_EXPLANATIONS[code]))
+                break
     return found
 
 
