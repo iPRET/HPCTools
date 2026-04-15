@@ -4,11 +4,11 @@
 
 set -euo pipefail
 
-POLL_INTERVAL=2        # seconds between squeue checks (HPC etiquette)
+POLL_INTERVAL_MIN=2    # initial seconds between squeue checks
+POLL_INTERVAL_MAX=30   # cap on backed-off poll interval (HPC etiquette)
 FILE_POLL_INTERVAL=2   # seconds between output file existence checks
 TAIL_RETRY_DELAY=3     # seconds to wait before retrying tail after failure
 TAIL_MAX_RETRIES=10    # max times to retry tail -f if it fails
-FILE_TIMEOUT=300       # seconds to wait for output file before giving up
 
 # --- Colors (if terminal supports it) ---
 if [[ -t 1 ]]; then
@@ -117,15 +117,9 @@ info "Expected output file: ${BOLD}$OUTPUT_FILE${RESET}"
 # --- Wait for job to start (or finish) and output file to appear ---
 wait_for_output_file() {
     local elapsed=0
+    local poll_interval=$POLL_INTERVAL_MIN
 
     while [[ ! -e "$OUTPUT_FILE" ]]; do
-        if (( elapsed >= FILE_TIMEOUT )); then
-            error "Output file did not appear after ${FILE_TIMEOUT}s — giving up."
-            error "The job may write output elsewhere, or it may have failed before writing."
-            warn "Check with: squeue -j $JOB_ID   or   sacct -j $JOB_ID"
-            exit 1
-        fi
-
         # Check if the job still exists / hasn't failed before producing output
         local state
         state=$(squeue -j "$JOB_ID" -h -o "%T" 2>/dev/null || echo "")
@@ -159,8 +153,13 @@ wait_for_output_file() {
                 info "Job $JOB_ID state: $state (${elapsed}s elapsed)" ;;
         esac
 
-        sleep "$POLL_INTERVAL"
-        elapsed=$((elapsed + POLL_INTERVAL))
+        sleep "$poll_interval"
+        elapsed=$((elapsed + poll_interval))
+        # Exponential backoff to be polite to the scheduler — no overall timeout.
+        if (( poll_interval < POLL_INTERVAL_MAX )); then
+            poll_interval=$((poll_interval * 2))
+            (( poll_interval > POLL_INTERVAL_MAX )) && poll_interval=$POLL_INTERVAL_MAX
+        fi
     done
 }
 
