@@ -2,7 +2,10 @@
 # ssbatch - Smart sbatch: submit a job and automatically tail its output
 # Usage: ssbatch [sbatch-args...] script.sh [script-args...]
 
-set -euo pipefail
+set -uo pipefail
+# NOTE: intentionally no `-e`. The polling loop tolerates transient squeue/sacct
+# hiccups and filesystem races on its own; `set -e` was silently killing the
+# script when one of those returned non-zero.
 
 POLL_INTERVAL_MIN=2    # initial seconds between squeue checks
 POLL_INTERVAL_MAX=30   # cap on backed-off poll interval (HPC etiquette)
@@ -125,19 +128,22 @@ wait_for_output_file() {
         state=$(squeue -j "$JOB_ID" -h -o "%T" 2>/dev/null || echo "")
 
         if [[ -z "$state" ]]; then
-            # Job no longer in squeue — check sacct for final state
+            # Job no longer in squeue — could be transient (squeue hiccup) or
+            # the job actually finished. Either way, give the filesystem time.
             local final_state
             final_state=$(sacct -j "$JOB_ID" -n -o State -X 2>/dev/null \
                 | head -1 | tr -d ' ' || echo "UNKNOWN")
 
-            if [[ ! -e "$OUTPUT_FILE" ]]; then
-                # Give the filesystem a moment to catch up
+            local fs_waits=0
+            while [[ ! -e "$OUTPUT_FILE" && $fs_waits -lt 15 ]]; do
                 sleep "$FILE_POLL_INTERVAL"
-                if [[ ! -e "$OUTPUT_FILE" ]]; then
-                    warn "Job finished (state: $final_state) but output file not found."
-                    warn "Check: sacct -j $JOB_ID --format=JobID,State,ExitCode,Elapsed"
-                    exit 1
-                fi
+                fs_waits=$((fs_waits + 1))
+            done
+
+            if [[ ! -e "$OUTPUT_FILE" ]]; then
+                warn "Job no longer in queue (state: $final_state) and output file still missing after $((fs_waits * FILE_POLL_INTERVAL))s."
+                warn "Check: sacct -j $JOB_ID --format=JobID,State,ExitCode,Elapsed"
+                exit 1
             fi
             break
         fi
