@@ -43,9 +43,8 @@ def get_jobs_for_accounts(accounts):
         return []
 
     account_str = ",".join(accounts)
-    fmt = "JobID:|Account:|User:|JobName:|State:|Partition:|NumNodes:|NumCPUs:|Gres:|TimeUsed:|TimeLimit:|Reason:"
     out, _, rc = run(
-        f'squeue -A {account_str} --format="%i|%a|%u|%j|%T|%P|%D|%C|%b|%M|%l|%R" --noheader'
+        f'squeue -A {account_str} --format="%i|%a|%u|%j|%T|%P|%D|%C|%b|%M|%l|%S|%R" --noheader'
     )
     if rc != 0 or not out:
         return []
@@ -53,7 +52,7 @@ def get_jobs_for_accounts(accounts):
     jobs = []
     for line in out.splitlines():
         parts = line.split("|")
-        if len(parts) >= 12:
+        if len(parts) >= 13:
             jobs.append({
                 "id": parts[0].strip(),
                 "account": parts[1].strip(),
@@ -66,9 +65,33 @@ def get_jobs_for_accounts(accounts):
                 "gres": parts[8].strip(),
                 "time_used": parts[9].strip(),
                 "time_limit": parts[10].strip(),
-                "reason": parts[11].strip(),
+                "start_time": format_start_time(parts[11].strip(), parts[4].strip()),
+                "reason": parts[12].strip(),
             })
     return jobs
+
+
+def format_start_time(raw, state):
+    """Make squeue's StartTime (%S) compact for display.
+
+    Squeue emits ISO-ish timestamps (2026-05-11T15:30:00), or sentinels like
+    'N/A' / 'Unknown' when the backfill scheduler hasn't produced an estimate.
+    """
+    if not raw or raw in ("N/A", "Unknown", "None"):
+        return "-"
+    # Expect YYYY-MM-DDTHH:MM:SS
+    if "T" in raw and len(raw) >= 16:
+        date_part, time_part = raw.split("T", 1)
+        try:
+            now = time.localtime()
+            y, m, d = date_part.split("-")
+            hm = time_part[:5]
+            if int(y) == now.tm_year:
+                return f"{m}-{d} {hm}"
+            return f"{y[2:]}-{m}-{d} {hm}"
+        except ValueError:
+            return raw
+    return raw
 
 
 REASON_EXPLANATIONS = {
@@ -137,6 +160,7 @@ def format_table(jobs):
         ("GPUs/Gres", "gres"),
         ("Used", "time_used"),
         ("Limit", "time_limit"),
+        ("Start (est)", "start_time"),
         ("Reason/Nodelist", "reason"),
     ]
 
